@@ -1,0 +1,195 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: This template will create CloudTrail and other dependent resources. 
+Parameters:
+  BucketName:
+    Type: String
+    Description: The name of the S3 bucket to create
+    Default: cloudtraillogs524613057705
+  TrailName:
+    Type: String
+    Description: The name of the CloudTrail to create
+    Default: Test-CloudTrail
+  KmsKeyAlias:
+    Type: String
+    Description: The alias name for the KMS Key to create
+    Default: CloudTrail/Key
+  SnsTopicName:
+    Type: String
+    Description: The name of the SNS topic to create
+    Default: CloudTrail-SNS
+  SQSQueueName:
+    Type: String
+    Description: The name of the SQS topic to create
+    Default: SQS-SNSConfig
+Resources:
+  S3Bucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !Ref BucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              KMSMasterKeyID: !GetAtt KmsKey.Arn
+              SSEAlgorithm: "aws:kms"
+
+  S3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: 'AWSCloudTrailAclCheck'
+            Effect: 'Allow'
+            Principal:
+              Service: 'cloudtrail.amazonaws.com'
+            Action: 
+              - s3:GetBucketAcl
+            Resource: 
+              - !Sub 'arn:aws:s3:::${BucketName}'
+          - Sid: 'S3BucketExistanceCheck'
+            Effect: 'Allow'
+            Principal:
+              Service: 'cloudtrail.amazonaws.com'
+            Action: 
+              - s3:ListBucket
+            Resource: 
+              - !Sub 'arn:aws:s3:::${BucketName}'
+              - !Sub 'arn:aws:s3:::${BucketName}/AWSLogs/*/*'
+          - Sid: 'S3putObject'
+            Effect: 'Allow'
+            Principal:
+              Service: 'cloudtrail.amazonaws.com'
+            Action: 
+              - s3:PutObject
+            Resource: 
+              - !Sub 'arn:aws:s3:::${BucketName}/AWSLogs/*/*'
+
+  KmsKey:
+    Type: "AWS::KMS::Key"
+    Properties:
+      Description: "KMS key for encrypting CloudTrail logs"
+      Enabled: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: "Enable IAM User Permissions"
+            Effect: "Allow"
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action:
+              - "kms:*"
+            Resource: "*"
+          - Sid: "Allow CloudTrail to encrypt logs"
+            Effect: "Allow"
+            Principal:
+              Service: "cloudtrail.amazonaws.com"
+            Action:
+              - "kms:GenerateDataKey*"
+              - "kms:Decrypt"
+            Resource: "*"
+          - Sid: "Allow CloudTrail to describe key"
+            Effect: "Allow"
+            Principal:
+              Service: "cloudtrail.amazonaws.com"
+            Action:
+              - "kms:DescribeKey"
+            Resource: "*"
+          - Sid: "Allow S3 to use the key"
+            Effect: "Allow"
+            Principal:
+              Service: "s3.amazonaws.com"
+            Action:
+              - "kms:GenerateDataKey*"
+            Resource: "*"
+
+  SnsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: CloudTrail Topic
+      TopicName: !Ref SnsTopicName
+
+  SnsTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref SnsTopic
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Sid: Allow Config to Publish
+            Effect: Allow
+            Principal:
+              Service:
+                - cloudtrail.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref SnsTopic
+          - Sid: 'Allow SQS to subscribe to SNS'
+            Effect: 'Allow'
+            Principal:
+              Service: 'sqs.amazonaws.com'
+            Action:
+              - 'sns:Subscribe'
+            Resource: !Ref SNSTopic
+          - Sid: 'Allow SNS to send messages to SQS'
+            Effect: 'Allow'
+            Principal:
+              Service: 'sns.amazonaws.com'
+            Action:
+              - 'sqs:SendMessage'
+            Resource: !Sub "arn:aws:sqs:${AWS::Region}:${AWS::AccountId}:${Environment}-${Application}-CloudTrail-Logs"
+        Topics:
+        - !Ref SNSTopic
+  SQSQueue:
+    Type: 'AWS::SQS::Queue'
+    Properties:
+      QueueName: !Sub "${Environment}-${Application}-CloudTrail-Logs"
+  SQSQueuePolicy:
+    Type: 'AWS::SQS::QueuePolicy'
+    Properties:
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: 'Allow SNS to send messages to SQS'
+            Effect: 'Allow
+  CloudTrail:
+    Type: "AWS::CloudTrail::Trail"
+    DependsOn: KmsKey
+    Properties:
+      IsLogging: true
+      CloudWatchLogsLogGroupArn: !GetAtt CloudTrailLogGroup.Arn
+      CloudWatchLogsRoleArn: !GetAtt CloudTrailCloudWatchLogsRole.Arn
+      S3BucketName: !Ref S3Bucket
+      SnsTopicName: !Ref SnsTopic
+      EnableLogFileValidation: true
+      KMSKeyId: !GetAtt KmsKey.Arn
+      TrailName: !Ref TrailName
+
+  CloudTrailCloudWatchLogsRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "cloudtrail.amazonaws.com"
+            Action: "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        - PolicyName: "CloudTrailLogsPolicy"
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: "Allow"
+                Action:
+                  - "logs:CreateLogGroup"
+                  - "logs:CreateLogStream"
+                  - "logs:PutLogEvents"
+                Resource: "*"
+
+  CloudTrailLogGroup:
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      LogGroupName: !Sub "/aws/cloudtrail/${TrailName}"
+      RetentionInDays: 14

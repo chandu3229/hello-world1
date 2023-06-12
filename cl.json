@@ -1,0 +1,73 @@
+{
+    "AWSTemplateFormationVersion":  "2010-09-09",
+    "Description" : "create cloud trail and store logs to S3 by using kms with encryption",
+
+    "Parameters" : {
+        "Resources": {
+          "CloudTrail" : {
+            "Type": "AWS::CloudTrail::Trail",
+            "Properties": {
+                "TrailName": "MyCloudTrail",
+                "S3BucketName": "chandabc",
+                "IsMultiRegionTrail": true,
+                "EnableLogFileValidation": true,
+                "IsLogging": true,
+                "IncludeGlobalServiceEvents": true,
+                "KMSKeyId": "arn:aws:kms:us-east-1:123456789012:key/abcd1234-abcd-1234-abcd-1234abcd5678",
+                "SNSTopicName": "TestTheMessage",
+                "SNSTopicARN": {
+                    "Fn::Join": [
+                        "",
+                        [
+                          "arn:aws:sns:",
+                          { "Ref": "AWS::Region" },
+                          ":",
+                          { "Ref": "AWS::AccountId" },
+                          ":MyCloudTrailSnsTopic"
+                        ]
+                      ] 
+                
+                    }
+            
+    
+            }
+          },
+        },
+        "S3Bucket": {
+          "Type": "AWS::S3::Bucket",
+          "Properties": {
+            "BucketName": "chandabc",
+            "BucketEncryption": {
+                "ServerSideEncryptionConfiguration": [
+                    {
+                      "ServerSideEncryptionByDefault": {
+                        "SSEAlgorithm": "aws:kms",
+                        "KMSMasterKeyID": "arn:aws:kms:us-east-1:123456789012:key/abcd1234-abcd-1234-abcd-1234abcd5678"
+                      }
+                    }
+                  ]
+            },
+            "NotificationConfiguration": {
+                "TopicConfigurations": [
+                  {
+                    "Event": "s3:ObjectCreated:Put",
+                    "Topic": {
+                      "Ref": "CloudTrailSnsTopic"
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          "CloudTrailSnsTopic": {
+            "Type": "AWS::SNS::Topic",
+            "Properties": {
+              "DisplayName": "MyCloudTrailSnsTopic"
+            }
+          }  
+        }
+
+    }
+
+
+}

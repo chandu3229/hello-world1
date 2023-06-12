@@ -1,0 +1,14 @@
+Resources:
+  CloudTrail:
+    Type: AWS::CloudTrail::Trail
+    Properties:
+      TrailName: MyCloudTrail
+      S3BucketName: my-cloudtrail-bucket
+      IsMultiRegionTrail: true
+      EnableLogFileValidation: true
+      IsLogging: true
+      IncludeGlobalServiceEvents: true
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: my-cloudtrail-bucket

@@ -1,0 +1,90 @@
+{
+  "Resources": {
+    "MyS3Bucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketName": "my-cloudtrail-bucket",
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "aws:kms",
+                "KMSMasterKeyID": "my-kms-key-arn"
+              }
+            }
+          ]
+        },
+        "NotificationConfiguration": {
+          "TopicConfigurations": [
+            {
+              "Event": "s3:ObjectCreated:*",
+              "Topic": {
+                "Ref": "MySNSTopic"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "MySNSTopic": {
+      "Type": "AWS::SNS::Topic",
+      "Properties": {
+        "DisplayName": "My CloudTrail SNS Topic",
+        "Subscription": [
+          {
+            "Endpoint": "chandra.katragadda25@gmail.com",
+            "Protocol": "email"
+          }
+        ]
+      }
+    },
+    "MySQSQueuePolicy": {
+      "Type": "AWS::SQS::QueuePolicy",
+      "Properties": {
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": "*",
+              "Action": "sqs:SendMessage",
+              "Resource": "arn:aws:sqs:us-east-1:123456789012:MySQSQueue",
+              "Condition": {
+                "ArnEquals": {
+                  "aws:SourceArn": {
+                    "Ref": "MySNSTopic"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "Queues": [
+          {
+            "Ref": "MySQSQueue"
+          }
+        ]
+      }
+    },
+    "MySQSQueue": {
+      "Type": "AWS::SQS::Queue",
+      "Properties": {
+        "QueueName": "MySQSQueue"
+      }
+    },
+    "MyCloudTrail": {
+      "Type": "AWS::CloudTrail::Trail",
+      "Properties": {
+        "IsLogging": true,
+        "IsMultiRegionTrail": true,
+        "IncludeGlobalServiceEvents": true,
+        "KMSKeyId": "my-kms-key-arn",
+        "S3BucketName": "my-cloudtrail-bucket",
+        "S3KeyPrefix": "MyCloudTrail/",
+        "SnsTopicName": {
+          "Ref": "MySNSTopic"
+        }
+      }
+    }
+  }
+}
